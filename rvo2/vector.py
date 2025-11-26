@@ -8,21 +8,26 @@ class Vector2:
     def __neg__(self):
         return Vector2(-self.x, -self.y)
 
+    # Inner product
     def __mul__(self, other):
         if isinstance(other, Vector2):
             return self.x * other.x + self.y * other.y
         else:
             return Vector2(self.x * other, self.y * other)
 
+    # Scalar multiplication
     def __rmul__(self, other):
         return Vector2(self.x * other, self.y * other)
 
+    # Scalar division
     def __truediv__(self, other):
         return Vector2(self.x / other, self.y / other)
 
+    # Vector addition
     def __add__(self, other):
         return Vector2(self.x + other.x, self.y + other.y)
 
+    # Vector subtraction
     def __sub__(self, other):
         return Vector2(self.x - other.x, self.y - other.y)
 
