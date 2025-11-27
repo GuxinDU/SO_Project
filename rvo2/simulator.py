@@ -71,6 +71,10 @@ class RVOSimulator:
             return len(self.agents) - 1
 
     def add_obstacle(self, vertices):
+        # Each obstacle is defined by a list of vertices (at least 2) and the last vertex is connected to the first
+        # The self.obstacles list contains all obstacle vertices in order
+        # All the vertices are later stored in the KdTree for obstacle neighbor queries,
+        # and the connection between vertices is stored in the prev_obstacle and next_obstacle attributes of each Obstacle
         if len(vertices) < 2:
             return RVO_ERROR
         

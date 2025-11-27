@@ -231,6 +231,7 @@ class Agent:
                 if len(self.agent_neighbors) < self.max_neighbors:
                     self.agent_neighbors.append((dist_sq, agent))
                 
+                # Insert in sorted order by dist_sq
                 i = len(self.agent_neighbors) - 1
                 while i != 0 and dist_sq < self.agent_neighbors[i-1][0]:
                     self.agent_neighbors[i] = self.agent_neighbors[i-1]

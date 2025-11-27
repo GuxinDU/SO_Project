@@ -193,7 +193,7 @@ class KdTree:
     def compute_obstacle_neighbors(self, agent, range_sq):
         self.query_obstacle_tree_recursive(agent, range_sq, self.obstacle_tree)
 
-    def query_agent_tree_recursive(self, agent, range_sq, node):
+    def query_agent_tree_recursive(self, agent, range_sq, node): # The node is the index of agent_tree
         # Find the agents within range_sq of the agent
         # and then insert them into the agent's neighbor list
         if self.agent_tree[node].end - self.agent_tree[node].begin <= MAX_LEAF_SIZE:
@@ -212,34 +212,36 @@ class KdTree:
 
             if dist_sq_left < dist_sq_right:
                 if dist_sq_left < range_sq:
-                    self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].left)
+                    range_sq = self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].left)
                     if dist_sq_right < range_sq:
-                        self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].right)
+                        range_sq = self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].right)
             else:
                 if dist_sq_right < range_sq:
-                    self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].right)
+                    range_sq = self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].right)
                     if dist_sq_left < range_sq:
-                        self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].left)
+                        range_sq = self.query_agent_tree_recursive(agent, range_sq, self.agent_tree[node].left)
+        return range_sq
 
-    def query_obstacle_tree_recursive(self, agent, range_sq, node):
+    def query_obstacle_tree_recursive(self, agent, range_sq, node): # The node is an ObstacleTreeNode
         if node is None:
-            return
+            return range_sq
         
         obstacle1 = node.obstacle
         obstacle2 = obstacle1.next_obstacle
 
         agent_left_of_line = leftOf(obstacle1.point, obstacle2.point, agent.position)
 
-        self.query_obstacle_tree_recursive(agent, range_sq, node.left if agent_left_of_line >= 0.0 else node.right)
+        range_sq = self.query_obstacle_tree_recursive(agent, range_sq, node.left if agent_left_of_line >= 0.0 else node.right)
 
         # Squared distance from agent to obstacle line
         dist_sq_line = sqr(agent_left_of_line) / abs_sq(obstacle2.point - obstacle1.point)
 
         if dist_sq_line < range_sq:
             if agent_left_of_line < 0.0:
-                agent.insert_obstacle_neighbor(node.obstacle, range_sq)
+                range_sq = agent.insert_obstacle_neighbor(node.obstacle, range_sq)
             
-            self.query_obstacle_tree_recursive(agent, range_sq, node.right if agent_left_of_line >= 0.0 else node.left)
+            range_sq = self.query_obstacle_tree_recursive(agent, range_sq, node.right if agent_left_of_line >= 0.0 else node.left)
+        return range_sq
 
     # True if q1 and q2 are visible to each other within radius
     def query_visibility(self, q1, q2, radius):
