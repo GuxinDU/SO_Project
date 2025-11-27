@@ -25,8 +25,8 @@ class KdTree:
     def __init__(self, sim):
         self.sim = sim
         self.agents = []
-        self.agent_tree = []
-        self.obstacle_tree = None
+        self.agent_tree = [] # List of AgentTreeNode
+        self.obstacle_tree = None # ObstacleTreeNode
 
     def build_agent_tree(self):
         if len(self.agents) < len(self.sim.agents):
@@ -56,12 +56,14 @@ class KdTree:
             right = end
 
             while left < right:
+                # The maximum index of the left subtree
                 while left < right and (self.agents[left].position.x if is_vertical else self.agents[left].position.y) < split_value:
                     left += 1
-                
+                # The minimum index of the right subtree
                 while right > left and (self.agents[right - 1].position.x if is_vertical else self.agents[right - 1].position.y) >= split_value:
                     right -= 1
                 
+                # The agents are not sorted, swap them
                 if left < right:
                     self.agents[left], self.agents[right - 1] = self.agents[right - 1], self.agents[left]
                     left += 1
@@ -89,6 +91,8 @@ class KdTree:
         node = ObstacleTreeNode()
         
         optimal_split = 0
+        # History of best split, the number of left and right
+        # smaller is the max value of left and right, more balance is the tree, and better
         min_left = len(obstacles)
         min_right = len(obstacles)
 
@@ -117,6 +121,7 @@ class KdTree:
                     left_size += 1
                     right_size += 1
                 
+                # Early exit if this split is worse than the best found so far
                 if max(left_size, right_size) >= max(min_left, min_right) and min(left_size, right_size) >= min(min_left, min_right):
                     break
             
@@ -139,13 +144,19 @@ class KdTree:
             obstacle_j1 = obstacles[j]
             obstacle_j2 = obstacle_j1.next_obstacle
 
+            # Determine which side of i1-i2 the j1 and j2 points are
+            # nonnegative if on the left side
             j1_left_of_i = leftOf(obstacle_i1.point, obstacle_i2.point, obstacle_j1.point)
             j2_left_of_i = leftOf(obstacle_i1.point, obstacle_i2.point, obstacle_j2.point)
-
-            if j1_left_of_i >= -RVO_EPSILON and j2_left_of_i >= -RVO_EPSILON:
+            
+            # Both points on left side or right side
+            # if j1_left_of_i >= -RVO_EPSILON and j2_left_of_i >= -RVO_EPSILON:
+            if j1_left_of_i >= 0.0 and j2_left_of_i >= 0.0:
                 left_obstacles.append(obstacles[j])
-            elif j1_left_of_i <= RVO_EPSILON and j2_left_of_i <= RVO_EPSILON:
+            # elif j1_left_of_i <= RVO_EPSILON and j2_left_of_i <= RVO_EPSILON:
+            elif j1_left_of_i <= 0.0 and j2_left_of_i <= 0.0:
                 right_obstacles.append(obstacles[j])
+            # If the obstacle straddles the line, split it
             else:
                 t = det(obstacle_i2.point - obstacle_i1.point, obstacle_j1.point - obstacle_i1.point) / det(obstacle_i2.point - obstacle_i1.point, obstacle_j1.point - obstacle_j2.point)
 
@@ -183,6 +194,8 @@ class KdTree:
         self.query_obstacle_tree_recursive(agent, range_sq, self.obstacle_tree)
 
     def query_agent_tree_recursive(self, agent, range_sq, node):
+        # Find the agents within range_sq of the agent
+        # and then insert them into the agent's neighbor list
         if self.agent_tree[node].end - self.agent_tree[node].begin <= MAX_LEAF_SIZE:
             for i in range(self.agent_tree[node].begin, self.agent_tree[node].end):
                 range_sq = agent.insert_agent_neighbor(self.agents[i], range_sq)
@@ -219,6 +232,7 @@ class KdTree:
 
         self.query_obstacle_tree_recursive(agent, range_sq, node.left if agent_left_of_line >= 0.0 else node.right)
 
+        # Squared distance from agent to obstacle line
         dist_sq_line = sqr(agent_left_of_line) / abs_sq(obstacle2.point - obstacle1.point)
 
         if dist_sq_line < range_sq:
@@ -227,9 +241,12 @@ class KdTree:
             
             self.query_obstacle_tree_recursive(agent, range_sq, node.right if agent_left_of_line >= 0.0 else node.left)
 
+    # True if q1 and q2 are visible to each other within radius
     def query_visibility(self, q1, q2, radius):
         return self.query_visibility_recursive(q1, q2, radius, self.obstacle_tree)
 
+    # Recursively dicide wehter q1 and q2 are visible to each considering each 
+    # segment of obstacles.
     def query_visibility_recursive(self, q1, q2, radius, node):
         if node is None:
             return True
@@ -241,21 +258,27 @@ class KdTree:
         q2_left_of_i = leftOf(obstacle1.point, obstacle2.point, q2)
         inv_length_i = 1.0 / abs_sq(obstacle2.point - obstacle1.point)
 
+        # Both q1 and q2 are on the left side of the obstacle line
         if q1_left_of_i >= 0.0 and q2_left_of_i >= 0.0:
+            # Visible if both are sufficiently far from the line (so that not affected by the obstacles in the right subtree),
+            # or recursively check the right subtree
             return self.query_visibility_recursive(q1, q2, radius, node.left) and \
                    ((sqr(q1_left_of_i) * inv_length_i >= sqr(radius) and sqr(q2_left_of_i) * inv_length_i >= sqr(radius)) or \
                     self.query_visibility_recursive(q1, q2, radius, node.right))
         elif q1_left_of_i <= 0.0 and q2_left_of_i <= 0.0:
+            # Visible if both are sufficiently far from the line (so that not affected by the obstacles in the left subtree), 
+            # or recursively check the left subtree
             return self.query_visibility_recursive(q1, q2, radius, node.right) and \
                    ((sqr(q1_left_of_i) * inv_length_i >= sqr(radius) and sqr(q2_left_of_i) * inv_length_i >= sqr(radius)) or \
                     self.query_visibility_recursive(q1, q2, radius, node.left))
+        # One point on each side of the obstacle line
         elif q1_left_of_i >= 0.0 and q2_left_of_i <= 0.0:
+            # Recursively check both subtrees
             return self.query_visibility_recursive(q1, q2, radius, node.left) and self.query_visibility_recursive(q1, q2, radius, node.right)
         else:
             point1_left_of_q = leftOf(q1, q2, obstacle1.point)
             point2_left_of_q = leftOf(q1, q2, obstacle2.point)
             inv_length_q = 1.0 / abs_sq(q2 - q1)
-
             return (point1_left_of_q * point2_left_of_q >= 0.0 and \
                     sqr(point1_left_of_q) * inv_length_q > sqr(radius) and \
                     sqr(point2_left_of_q) * inv_length_q > sqr(radius) and \
