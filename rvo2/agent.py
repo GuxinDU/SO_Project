@@ -67,30 +67,37 @@ class Agent:
             line = Line()
 
             if s < 0.0 and dist_sq1 <= radius_sq:
+                # Collision with left vertex. Ignore if non-convex.
                 if obstacle1.is_convex:
                     line.point = Vector2(0.0, 0.0)
                     line.direction = normalize(Vector2(-relative_position1.y, relative_position1.x))
                     self.orca_lines.append(line)
                 continue
             elif s > 1.0 and dist_sq2 <= radius_sq:
+                # Collision with right vertex. Ignore if non-convex, 
+                # or if it will be taken care of by neighboring obstacle
                 if obstacle2.is_convex and det(relative_position2, obstacle2.unit_dir) >= 0.0:
                     line.point = Vector2(0.0, 0.0)
                     line.direction = normalize(Vector2(-relative_position2.y, relative_position2.x))
                     self.orca_lines.append(line)
                 continue
             elif s >= 0.0 and s < 1.0 and dist_sq_line <= radius_sq:
+                # collision with obstacle segment.
                 line.point = Vector2(0.0, 0.0)
                 line.direction = -obstacle1.unit_dir
                 self.orca_lines.append(line)
                 continue
 
             # No collision.
-            # Compute legs.
+            # Compute legs. When obliquely viewed, legs can come from a single vertex.
+            # Legs extend cut-off line when non-convex vertex.
             left_leg_direction = Vector2()
             right_leg_direction = Vector2()
 
             if s < 0.0 and dist_sq_line <= radius_sq:
+                # Obstacle viewed obliquely so that left vertex defines velocity obstacle.
                 if not obstacle1.is_convex:
+                    # Ignore obstacle.
                     continue
                 
                 obstacle2 = obstacle1
@@ -98,6 +105,7 @@ class Agent:
                 left_leg_direction = Vector2(relative_position1.x * leg1 - relative_position1.y * self.radius, relative_position1.x * self.radius + relative_position1.y * leg1) / dist_sq1
                 right_leg_direction = Vector2(relative_position1.x * leg1 + relative_position1.y * self.radius, -relative_position1.x * self.radius + relative_position1.y * leg1) / dist_sq1
             elif s > 1.0 and dist_sq_line <= radius_sq:
+                # Obstacle viewed obliquely so that right vertex defines velocity obstacle.
                 if not obstacle2.is_convex:
                     continue
                 
@@ -106,18 +114,24 @@ class Agent:
                 left_leg_direction = Vector2(relative_position2.x * leg2 - relative_position2.y * self.radius, relative_position2.x * self.radius + relative_position2.y * leg2) / dist_sq2
                 right_leg_direction = Vector2(relative_position2.x * leg2 + relative_position2.y * self.radius, -relative_position2.x * self.radius + relative_position2.y * leg2) / dist_sq2
             else:
+                # Usual case: legs from both vertices.
                 if obstacle1.is_convex:
                     leg1 = math.sqrt(dist_sq1 - radius_sq)
                     left_leg_direction = Vector2(relative_position1.x * leg1 - relative_position1.y * self.radius, relative_position1.x * self.radius + relative_position1.y * leg1) / dist_sq1
                 else:
+                    # Left vertex non-convex. Left leg extends cut-off line.
                     left_leg_direction = -obstacle1.unit_dir
                 
                 if obstacle2.is_convex:
                     leg2 = math.sqrt(dist_sq2 - radius_sq)
                     right_leg_direction = Vector2(relative_position2.x * leg2 + relative_position2.y * self.radius, -relative_position2.x * self.radius + relative_position2.y * leg2) / dist_sq2
                 else:
+                    # Right vertex non-convex. Right leg extends cut-off line.
                     right_leg_direction = obstacle1.unit_dir
 
+            # Legs can never point into neighboring edge when convex vertex,
+            # tack cutoff line of neighboring edge instead. If velocity projected on 
+            # 'foreign' leg, no constraint is added
             left_neighbor = obstacle1.prev_obstacle
             is_left_leg_foreign = False
             is_right_leg_foreign = False
