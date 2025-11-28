@@ -45,6 +45,9 @@ class Agent:
 
             # Check if velocity obstacle of obstacle is already taken care of by
             # previously constructed obstacle ORCA lines
+            # If this result is > 0, the velocity 'v' is on the forbidden side of the line
+            # is_violation = det(line.direction, line.point - v) > 0
+            # Equivalent to det(v - line.point, line.direction) > 0
             already_covered = False
             for line in self.orca_lines:
                 if det(inv_time_horizon_obst * relative_position1 - line.point, line.direction) - inv_time_horizon_obst * self.radius >= -RVO_EPSILON and \
@@ -61,6 +64,9 @@ class Agent:
             radius_sq = sqr(self.radius)
 
             obstacle_vector = obstacle2.point - obstacle1.point
+            # s<0: The agent is 'before' obstacle1
+            # s>1: The agent is 'after' obstacle2
+            # 0<=s<=1: The agent is 'alongside' the obstacle segment
             s = (-relative_position1 * obstacle_vector) / abs_sq(obstacle_vector)
             dist_sq_line = abs_sq(-relative_position1 - s * obstacle_vector)
 
