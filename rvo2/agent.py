@@ -2,6 +2,7 @@ from .vector import Vector2, abs_sq, det, normalize, abs_vector
 from .utils import RVO_EPSILON, distSqPointLineSegment, sqr
 from .line import Line
 import math
+from coptpy import *
 
 class Agent:
     def __init__(self, sim):
@@ -10,7 +11,6 @@ class Agent:
         self.max_speed = 0.0
         self.neighbor_dist = 0.0
         self.new_velocity = Vector2()
-        self.obstacle_neighbors = [] # list of (distSq, obstacle)
         self.orca_lines = []
         self.position = Vector2()
         self.pref_velocity = Vector2()
@@ -21,181 +21,60 @@ class Agent:
         self.velocity = Vector2()
         self.id = 0
 
-    def compute_neighbors(self):
-        self.obstacle_neighbors = []
-        range_sq = sqr(self.time_horizon_obst * self.max_speed + self.radius)
-        self.sim.kd_tree.compute_obstacle_neighbors(self, range_sq)
-
+    def _compute_neighbors(self):
         self.agent_neighbors = []
         if self.max_neighbors > 0:
             range_sq = sqr(self.neighbor_dist)
             self.sim.kd_tree.compute_agent_neighbors(self, range_sq)
 
-    def compute_new_velocity(self):
+    def _deterministic_orca_lines(self):
         self.orca_lines = []
-        
-        inv_time_horizon_obst = 1.0 / self.time_horizon_obst
+        inv_time_horizon = 1.0 / self.time_horizon
 
-        # Create obstacle ORCA lines
-        for dist_sq, obstacle1 in self.obstacle_neighbors:
-            obstacle2 = obstacle1.next_obstacle
-
-            relative_position1 = obstacle1.point - self.position
-            relative_position2 = obstacle2.point - self.position
-
-            # Check if velocity obstacle of obstacle is already taken care of by
-            # previously constructed obstacle ORCA lines
-            # If this result is > 0, the velocity 'v' is on the forbidden side of the line
-            # is_violation = det(line.direction, line.point - v) > 0
-            # Equivalent to det(v - line.point, line.direction) > 0
-            already_covered = False
-            for line in self.orca_lines:
-                if det(inv_time_horizon_obst * relative_position1 - line.point, line.direction) - inv_time_horizon_obst * self.radius >= -RVO_EPSILON and \
-                   det(inv_time_horizon_obst * relative_position2 - line.point, line.direction) - inv_time_horizon_obst * self.radius >= -RVO_EPSILON:
-                    already_covered = True
-                    break
-            
-            if already_covered:
-                continue
-
-            # Not yet covered. Check for collisions.
-            dist_sq1 = abs_sq(relative_position1)
-            dist_sq2 = abs_sq(relative_position2)
-            radius_sq = sqr(self.radius)
-
-            obstacle_vector = obstacle2.point - obstacle1.point
-            # s<0: The agent is 'before' obstacle1
-            # s>1: The agent is 'after' obstacle2
-            # 0<=s<=1: The agent is 'alongside' the obstacle segment
-            s = (-relative_position1 * obstacle_vector) / abs_sq(obstacle_vector)
-            dist_sq_line = abs_sq(-relative_position1 - s * obstacle_vector)
+        # Create agent ORCA lines
+        for dist_sq, other in self.agent_neighbors:
+            relative_position = other.position - self.position
+            relative_velocity = self.velocity - other.velocity
+            dist_sq = abs_sq(relative_position)
+            combined_radius = self.radius + other.radius
+            combined_radius_sq = sqr(combined_radius)
 
             line = Line()
+            u = Vector2()
 
-            if s < 0.0 and dist_sq1 <= radius_sq:
-                # Collision with left vertex. Ignore if non-convex.
-                if obstacle1.is_convex:
-                    line.point = Vector2(0.0, 0.0)
-                    line.direction = normalize(Vector2(-relative_position1.y, relative_position1.x))
-                    self.orca_lines.append(line)
-                continue
-            elif s > 1.0 and dist_sq2 <= radius_sq:
-                # Collision with right vertex. Ignore if non-convex, 
-                # or if it will be taken care of by neighboring obstacle
-                if obstacle2.is_convex and det(relative_position2, obstacle2.unit_dir) >= 0.0:
-                    line.point = Vector2(0.0, 0.0)
-                    line.direction = normalize(Vector2(-relative_position2.y, relative_position2.x))
-                    self.orca_lines.append(line)
-                continue
-            elif s >= 0.0 and s < 1.0 and dist_sq_line <= radius_sq:
-                # collision with obstacle segment.
-                line.point = Vector2(0.0, 0.0)
-                line.direction = -obstacle1.unit_dir
-                self.orca_lines.append(line)
-                continue
+            if dist_sq > combined_radius_sq:
+                w = relative_velocity - inv_time_horizon * relative_position
+                w_length_sq = abs_sq(w)
+                dot_product1 = w * relative_position
 
-            # No collision.
-            # Compute legs. When obliquely viewed, legs can come from a single vertex.
-            # Legs extend cut-off line when non-convex vertex.
-            left_leg_direction = Vector2()
-            right_leg_direction = Vector2()
-
-            if s < 0.0 and dist_sq_line <= radius_sq:
-                # Obstacle viewed obliquely so that left vertex defines velocity obstacle.
-                if not obstacle1.is_convex:
-                    # Ignore obstacle.
-                    continue
-                
-                obstacle2 = obstacle1
-                leg1 = math.sqrt(dist_sq1 - radius_sq)
-                left_leg_direction = Vector2(relative_position1.x * leg1 - relative_position1.y * self.radius, relative_position1.x * self.radius + relative_position1.y * leg1) / dist_sq1
-                right_leg_direction = Vector2(relative_position1.x * leg1 + relative_position1.y * self.radius, -relative_position1.x * self.radius + relative_position1.y * leg1) / dist_sq1
-            elif s > 1.0 and dist_sq_line <= radius_sq:
-                # Obstacle viewed obliquely so that right vertex defines velocity obstacle.
-                if not obstacle2.is_convex:
-                    continue
-                
-                obstacle1 = obstacle2
-                leg2 = math.sqrt(dist_sq2 - radius_sq)
-                left_leg_direction = Vector2(relative_position2.x * leg2 - relative_position2.y * self.radius, relative_position2.x * self.radius + relative_position2.y * leg2) / dist_sq2
-                right_leg_direction = Vector2(relative_position2.x * leg2 + relative_position2.y * self.radius, -relative_position2.x * self.radius + relative_position2.y * leg2) / dist_sq2
-            else:
-                # Usual case: legs from both vertices.
-                if obstacle1.is_convex:
-                    leg1 = math.sqrt(dist_sq1 - radius_sq)
-                    left_leg_direction = Vector2(relative_position1.x * leg1 - relative_position1.y * self.radius, relative_position1.x * self.radius + relative_position1.y * leg1) / dist_sq1
+                if dot_product1 < 0.0 and sqr(dot_product1) > combined_radius_sq * w_length_sq:
+                    w_length = math.sqrt(w_length_sq)
+                    unit_w = w / w_length
+                    line.direction = Vector2(unit_w.y, -unit_w.x)
+                    u = (combined_radius * inv_time_horizon - w_length) * unit_w
                 else:
-                    # Left vertex non-convex. Left leg extends cut-off line.
-                    left_leg_direction = -obstacle1.unit_dir
-                
-                if obstacle2.is_convex:
-                    leg2 = math.sqrt(dist_sq2 - radius_sq)
-                    right_leg_direction = Vector2(relative_position2.x * leg2 + relative_position2.y * self.radius, -relative_position2.x * self.radius + relative_position2.y * leg2) / dist_sq2
-                else:
-                    # Right vertex non-convex. Right leg extends cut-off line.
-                    right_leg_direction = obstacle1.unit_dir
-
-            # Legs can never point into neighboring edge when convex vertex,
-            # tack cutoff line of neighboring edge instead. If velocity projected on 
-            # 'foreign' leg, no constraint is added
-            left_neighbor = obstacle1.prev_obstacle
-            is_left_leg_foreign = False
-            is_right_leg_foreign = False
-
-            if obstacle1.is_convex and det(left_leg_direction, -left_neighbor.unit_dir) >= 0.0:
-                left_leg_direction = -left_neighbor.unit_dir
-                is_left_leg_foreign = True
-
-            if obstacle2.is_convex and det(right_leg_direction, obstacle2.unit_dir) <= 0.0:
-                right_leg_direction = obstacle2.unit_dir
-                is_right_leg_foreign = True
-
-            left_cutoff = inv_time_horizon_obst * (obstacle1.point - self.position)
-            right_cutoff = inv_time_horizon_obst * (obstacle2.point - self.position)
-            cutoff_vec = right_cutoff - left_cutoff
-
-            t = 0.5 if obstacle1 == obstacle2 else ((self.velocity - left_cutoff) * cutoff_vec) / abs_sq(cutoff_vec)
-            t_left = (self.velocity - left_cutoff) * left_leg_direction
-            t_right = (self.velocity - right_cutoff) * right_leg_direction
-
-            if (t < 0.0 and t_left < 0.0) or (obstacle1 == obstacle2 and t_left < 0.0 and t_right < 0.0):
-                unit_w = normalize(self.velocity - left_cutoff)
-                line.direction = Vector2(unit_w.y, -unit_w.x)
-                line.point = left_cutoff + self.radius * inv_time_horizon_obst * unit_w
-                self.orca_lines.append(line)
-                continue
-            elif t > 1.0 and t_right < 0.0:
-                unit_w = normalize(self.velocity - right_cutoff)
-                line.direction = Vector2(unit_w.y, -unit_w.x)
-                line.point = right_cutoff + self.radius * inv_time_horizon_obst * unit_w
-                self.orca_lines.append(line)
-                continue
-
-            dist_sq_cutoff = float('inf') if (t < 0.0 or t > 1.0 or obstacle1 == obstacle2) else abs_sq(self.velocity - (left_cutoff + t * cutoff_vec))
-            dist_sq_left = float('inf') if t_left < 0.0 else abs_sq(self.velocity - (left_cutoff + t_left * left_leg_direction))
-            dist_sq_right = float('inf') if t_right < 0.0 else abs_sq(self.velocity - (right_cutoff + t_right * right_leg_direction))
-
-            if dist_sq_cutoff <= dist_sq_left and dist_sq_cutoff <= dist_sq_right:
-                line.direction = -obstacle1.unit_dir
-                line.point = left_cutoff + self.radius * inv_time_horizon_obst * Vector2(-line.direction.y, line.direction.x)
-                self.orca_lines.append(line)
-                continue
-            elif dist_sq_left <= dist_sq_right:
-                if is_left_leg_foreign:
-                    continue
-                line.direction = left_leg_direction
-                line.point = left_cutoff + self.radius * inv_time_horizon_obst * Vector2(-line.direction.y, line.direction.x)
-                self.orca_lines.append(line)
-                continue
+                    leg = math.sqrt(dist_sq - combined_radius_sq)
+                    if det(relative_position, w) > 0.0:
+                        line.direction = Vector2(relative_position.x * leg - relative_position.y * combined_radius, relative_position.x * combined_radius + relative_position.y * leg) / dist_sq
+                    else:
+                        line.direction = -Vector2(relative_position.x * leg + relative_position.y * combined_radius, -relative_position.x * combined_radius + relative_position.y * leg) / dist_sq
+                    
+                    dot_product2 = relative_velocity * line.direction
+                    u = dot_product2 * line.direction - relative_velocity
             else:
-                if is_right_leg_foreign:
-                    continue
-                line.direction = -right_leg_direction
-                line.point = right_cutoff + self.radius * inv_time_horizon_obst * Vector2(-line.direction.y, line.direction.x)
-                self.orca_lines.append(line)
-                continue
+                inv_time_step = 1.0 / self.sim.time_step
+                w = relative_velocity - inv_time_step * relative_position
+                w_length = abs_vector(w)
+                unit_w = w / w_length
+                line.direction = Vector2(unit_w.y, -unit_w.x)
+                u = (combined_radius * inv_time_step - w_length) * unit_w
 
-        num_obst_lines = len(self.orca_lines)
+            line.point = self.velocity + 0.5 * u
+            self.orca_lines.append(line)
+
+
+    def compute_new_velocity(self):
+        self.orca_lines = []
         inv_time_horizon = 1.0 / self.time_horizon
 
         # Create agent ORCA lines
@@ -280,6 +159,7 @@ class Agent:
         self.velocity = self.new_velocity
         self.position += self.velocity * self.sim.time_step
 
+
 def linear_program1(lines, line_no, radius, opt_velocity, direction_opt, result):
     dot_product = lines[line_no].point * lines[line_no].direction
     discriminant = sqr(dot_product) + sqr(radius) - abs_sq(lines[line_no].point)
@@ -328,12 +208,13 @@ def linear_program1(lines, line_no, radius, opt_velocity, direction_opt, result)
 
     return True, result
 
+# line_fail, self.new_velocity = linear_program2(self.orca_lines, self.max_speed, self.pref_velocity, False, self.new_velocity)
 def linear_program2(lines, radius, opt_velocity, direction_opt, result):
-    if direction_opt:
+    if direction_opt:  # If an optimal direction is to be taken
         result = opt_velocity * radius
-    elif abs_sq(opt_velocity) > sqr(radius):
+    elif abs_sq(opt_velocity) > sqr(radius): # If the optimal velocity is larger than the max speed
         result = normalize(opt_velocity) * radius
-    else:
+    else:   # Otherwise, the optimal velocity is within the max speed. A trivial value is (0.0, 0.0)
         result = opt_velocity
 
     for i in range(len(lines)):
@@ -346,6 +227,8 @@ def linear_program2(lines, radius, opt_velocity, direction_opt, result):
 
     return len(lines), result
 
+# if line_fail < len(self.orca_lines):
+#     self.new_velocity = linear_program3(self.orca_lines, num_obst_lines, line_fail, self.max_speed, self.new_velocity)
 def linear_program3(lines, num_obst_lines, begin_line, radius, result):
     distance = 0.0
 

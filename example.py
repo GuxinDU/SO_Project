@@ -26,7 +26,7 @@ print('Simulation has %i agents and %i obstacle vertices in it.' %
 
 print('Running simulation')
 
-for step in range(20):
+for step in range(30):
     sim.doStep()
 
     positions = ['(%5.3f, %5.3f)' % sim.getAgentPosition(agent_no)
