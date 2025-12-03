@@ -13,6 +13,7 @@ class Agent:
         self.new_velocity = Vector2()
         self.orca_lines = []
         self.position = Vector2()
+        self.goal_position = Vector2()
         self.pref_velocity = Vector2()
         self.radius = 0.0
         self.sim = sim
@@ -20,6 +21,27 @@ class Agent:
         self.time_horizon_obst = 0.0
         self.velocity = Vector2()
         self.id = 0
+
+        self.env = None
+        self.qp = None
+        self.varx = None
+        self.vary = None
+
+    def _init_qp_model(self):
+        self.env = Envr()
+        self.qp = self.env.createModel()
+        # self.qp = Model()
+        self.qp.setParam('Logging', 0)  # Suppress output
+        self.qp.setParam('threads', 1)     # Single thread for deterministic behavior
+        self.varx = self.qp.addVar(lb = -COPT.INFINITY, ub = COPT.INFINITY, vtype=COPT.CONTINUOUS)
+        self.vary = self.qp.addVar(lb = -COPT.INFINITY, ub = COPT.INFINITY, vtype=COPT.CONTINUOUS)
+        self.qp.addQConstr(self.varx ** 2 + self.vary ** 2 <= self.max_speed * self.max_speed)
+
+    def _update_pref_velocity(self):
+        pref_velocity = (self.goal_position - self.position)/self.sim.time_step
+        if abs_sq(pref_velocity) > sqr(self.max_speed):
+            pref_velocity = normalize(pref_velocity) * self.max_speed
+        self.pref_velocity = pref_velocity
 
     def _compute_neighbors(self):
         self.agent_neighbors = []
@@ -71,57 +93,85 @@ class Agent:
 
             line.point = self.velocity + 0.5 * u
             self.orca_lines.append(line)
+        return 0
+
+    def compute_new_velocity_copt(self):
+        """
+        New implementation using COPT solver to replace linear_program 1, 2, and 3.
+        """
+        
+        # 1. Try to solve the standard RVO problem:
+        # Minimize ||v - v_pref||^2 subject to ORCA lines and Max Speed
+        success, result_vel = self.solve_copt_qp()
+        print('---Agent {}---'.format(self.id), success, result_vel, self.pref_velocity)
+        
+        if success:
+            self.new_velocity = result_vel
+        else:
+            # 2. If infeasible (equivalent to LP3), solve for minimum constraint violation
+            # Minimize z (slack) subject to relaxed ORCA lines and Max Speed
+            success_relax, result_vel_relax = self.solve_copt_relaxation()
+            print('---Agent {} Relaxed---'.format(self.id), success_relax, result_vel_relax)
+            if success_relax:
+                self.new_velocity = result_vel_relax
+            # If both fail, keep previous velocity or set to zero (fallback)
+
+    def solve_copt_qp(self):
+        constrs = {}
+        for i in range(len(self.orca_lines)):
+            line = self.orca_lines[i]
+            # print(line)
+            constr_expr = (-line.direction.y * (self.varx - line.point.x) + line.direction.x * (self.vary - line.point.y))
+            constrs[i] = self.qp.addConstr(constr_expr >= 0.0, name=f"orca_line_{i}")
+        self.qp.setObjective((self.varx - self.pref_velocity.x) ** 2 + (self.vary - self.pref_velocity.y) ** 2, COPT.MINIMIZE)
+        self.qp.solve()
+        if self.qp.Status == COPT.OPTIMAL:
+            x_val = self.varx.X
+            y_val = self.vary.X
+            for constr in constrs.values():
+                self.qp.remove(constr)
+            return True, Vector2(x_val, y_val)
+        elif self.qp.Status == COPT.INFEASIBLE:
+            for constr in constrs.values():
+                self.qp.remove(constr)
+            return False, None
+        else:
+            for constr in constrs.values():
+                self.qp.remove(constr)
+            raise Exception("COPT optimization failed with status: {}".format(self.qp.getStatus()))
+        
+    def solve_copt_relaxation(self):
+        violation_var = self.qp.addVar(0.0, COPT.INFINITY, vtype=COPT.CONTINUOUS, name="violation")
+        self.qp.setObjective(violation_var, COPT.MINIMIZE)
+        constrs = {}
+        for i in range(len(self.orca_lines)):
+            line = self.orca_lines[i]
+            constr_expr = (-line.direction.y * (self.varx - line.point.x) + line.direction.x * (self.vary - line.point.y))
+            constrs[i] = self.qp.addConstr(constr_expr + violation_var >= 0.0, name=f"relaxed_orca_line_{i}")
+        self.qp.solve()
+        if self.qp.Status == COPT.OPTIMAL:
+            x_val = self.varx.X
+            y_val = self.vary.X
+            self.qp.remove(violation_var)
+            for constr in constrs.values():
+                self.qp.remove(constr)
+            return True, Vector2(x_val, y_val)
+        else:
+            self.qp.remove(violation_var)
+            for constr in constrs.values():
+                self.qp.remove(constr)
+            raise Exception("COPT relaxation optimization failed with status: {}".format(self.qp.getStatus()))
 
 
-    def compute_new_velocity(self):
-        self.orca_lines = []
-        inv_time_horizon = 1.0 / self.time_horizon
 
-        # Create agent ORCA lines
-        for dist_sq, other in self.agent_neighbors:
-            relative_position = other.position - self.position
-            relative_velocity = self.velocity - other.velocity
-            dist_sq = abs_sq(relative_position)
-            combined_radius = self.radius + other.radius
-            combined_radius_sq = sqr(combined_radius)
+    # def compute_new_velocity(self):
+    #     line_fail, self.new_velocity = linear_program2(self.orca_lines, self.max_speed, self.pref_velocity, False, self.new_velocity)
 
-            line = Line()
-            u = Vector2()
+    #     if line_fail < len(self.orca_lines):
+    #         # self.new_velocity = linear_program3(self.orca_lines, num_obst_lines, line_fail, self.max_speed, self.new_velocity)
+    #         self.new_velocity = linear_program3(self.orca_lines, line_fail, self.max_speed, self.new_velocity)
 
-            if dist_sq > combined_radius_sq:
-                w = relative_velocity - inv_time_horizon * relative_position
-                w_length_sq = abs_sq(w)
-                dot_product1 = w * relative_position
 
-                if dot_product1 < 0.0 and sqr(dot_product1) > combined_radius_sq * w_length_sq:
-                    w_length = math.sqrt(w_length_sq)
-                    unit_w = w / w_length
-                    line.direction = Vector2(unit_w.y, -unit_w.x)
-                    u = (combined_radius * inv_time_horizon - w_length) * unit_w
-                else:
-                    leg = math.sqrt(dist_sq - combined_radius_sq)
-                    if det(relative_position, w) > 0.0:
-                        line.direction = Vector2(relative_position.x * leg - relative_position.y * combined_radius, relative_position.x * combined_radius + relative_position.y * leg) / dist_sq
-                    else:
-                        line.direction = -Vector2(relative_position.x * leg + relative_position.y * combined_radius, -relative_position.x * combined_radius + relative_position.y * leg) / dist_sq
-                    
-                    dot_product2 = relative_velocity * line.direction
-                    u = dot_product2 * line.direction - relative_velocity
-            else:
-                inv_time_step = 1.0 / self.sim.time_step
-                w = relative_velocity - inv_time_step * relative_position
-                w_length = abs_vector(w)
-                unit_w = w / w_length
-                line.direction = Vector2(unit_w.y, -unit_w.x)
-                u = (combined_radius * inv_time_step - w_length) * unit_w
-
-            line.point = self.velocity + 0.5 * u
-            self.orca_lines.append(line)
-
-        line_fail, self.new_velocity = linear_program2(self.orca_lines, self.max_speed, self.pref_velocity, False, self.new_velocity)
-
-        if line_fail < len(self.orca_lines):
-            self.new_velocity = linear_program3(self.orca_lines, num_obst_lines, line_fail, self.max_speed, self.new_velocity)
 
     def insert_agent_neighbor(self, agent, range_sq):
         if self != agent:
@@ -229,14 +279,15 @@ def linear_program2(lines, radius, opt_velocity, direction_opt, result):
 
 # if line_fail < len(self.orca_lines):
 #     self.new_velocity = linear_program3(self.orca_lines, num_obst_lines, line_fail, self.max_speed, self.new_velocity)
-def linear_program3(lines, num_obst_lines, begin_line, radius, result):
+def linear_program3(lines, begin_line, radius, result):
     distance = 0.0
 
     for i in range(begin_line, len(lines)):
         if det(lines[i].direction, lines[i].point - result) > distance:
-            proj_lines = lines[:num_obst_lines]
-
-            for j in range(num_obst_lines, i):
+            # proj_lines = lines[:num_obst_lines]
+            proj_lines = []
+            # for j in range(num_obst_lines, i):
+            for j in range(i):
                 line = Line()
                 determinant = det(lines[i].direction, lines[j].direction)
 

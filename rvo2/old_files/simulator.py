@@ -14,7 +14,7 @@ def to_vector(v):
     return v
 
 class RVOSimulator:
-    def __init__(self, time_step=0.0, neighbor_dist=0.0, max_neighbors=0, time_horizon=0.0, radius=0.0, max_speed=0.0, velocity=None):
+    def __init__(self, time_step=0.0, neighbor_dist=0.0, max_neighbors=0, time_horizon=0.0, time_horizon_obst=0.0, radius=0.0, max_speed=0.0, velocity=None):
         self.time_step = time_step
         self.agents = []
         self.default_agent = None
@@ -26,19 +26,19 @@ class RVOSimulator:
         if velocity is None:
             velocity = Vector2()
 
-        if neighbor_dist > 0 or max_neighbors > 0 or time_horizon > 0 or radius > 0 or max_speed > 0:
+        if neighbor_dist > 0 or max_neighbors > 0 or time_horizon > 0 or time_horizon_obst > 0 or radius > 0 or max_speed > 0:
              self.default_agent = Agent(self)
              self.default_agent.max_neighbors = max_neighbors
              self.default_agent.max_speed = max_speed
              self.default_agent.neighbor_dist = neighbor_dist
              self.default_agent.radius = radius
              self.default_agent.time_horizon = time_horizon
+             self.default_agent.time_horizon_obst = time_horizon_obst
              self.default_agent.velocity = velocity
-    
-    def add_agent(self, position, goal, neighbor_dist=None, max_neighbors=None, time_horizon=None, radius=None, max_speed=None, velocity=None):
+
+    def add_agent(self, position, neighbor_dist=None, max_neighbors=None, time_horizon=None, time_horizon_obst=None, radius=None, max_speed=None, velocity=None):
         position = to_vector(position)
         velocity = to_vector(velocity)
-        goal = to_vector(goal)
         
         if neighbor_dist is None:
             if self.default_agent is None:
@@ -51,10 +51,9 @@ class RVOSimulator:
             agent.neighbor_dist = self.default_agent.neighbor_dist
             agent.radius = self.default_agent.radius
             agent.time_horizon = self.default_agent.time_horizon
+            agent.time_horizon_obst = self.default_agent.time_horizon_obst
             agent.velocity = self.default_agent.velocity
-            agent.goal_position = goal # Set goal position
             agent.id = len(self.agents)
-            agent._init_qp_model() # Initialize QP model
             self.agents.append(agent)
             return len(self.agents) - 1
         else:
@@ -65,57 +64,54 @@ class RVOSimulator:
             agent.neighbor_dist = neighbor_dist
             agent.radius = radius
             agent.time_horizon = time_horizon
+            agent.time_horizon_obst = time_horizon_obst
             agent.velocity = velocity if velocity is not None else Vector2()
-            agent.goal_position = goal # Set goal position
             agent.id = len(self.agents)
-            agent._init_qp_model() # Initialize QP model
             self.agents.append(agent)
             return len(self.agents) - 1
 
-    # def add_obstacle(self, vertices):
-    #     # Each obstacle is defined by a list of vertices (at least 2) and the last vertex is connected to the first
-    #     # The self.obstacles list contains all obstacle vertices in order
-    #     # All the vertices are later stored in the KdTree for obstacle neighbor queries,
-    #     # and the connection between vertices is stored in the prev_obstacle and next_obstacle attributes of each Obstacle
-    #     if len(vertices) < 2:
-    #         return RVO_ERROR
+    def add_obstacle(self, vertices):
+        # Each obstacle is defined by a list of vertices (at least 2) and the last vertex is connected to the first
+        # The self.obstacles list contains all obstacle vertices in order
+        # All the vertices are later stored in the KdTree for obstacle neighbor queries,
+        # and the connection between vertices is stored in the prev_obstacle and next_obstacle attributes of each Obstacle
+        if len(vertices) < 2:
+            return RVO_ERROR
         
-    #     vertices = [to_vector(v) for v in vertices]
+        vertices = [to_vector(v) for v in vertices]
         
-    #     obstacle_no = len(self.obstacles)
+        obstacle_no = len(self.obstacles)
 
-    #     for i in range(len(vertices)):
-    #         obstacle = Obstacle()
-    #         obstacle.point = vertices[i]
+        for i in range(len(vertices)):
+            obstacle = Obstacle()
+            obstacle.point = vertices[i]
 
-    #         if i != 0:
-    #             obstacle.prev_obstacle = self.obstacles[-1]
-    #             obstacle.prev_obstacle.next_obstacle = obstacle
+            if i != 0:
+                obstacle.prev_obstacle = self.obstacles[-1]
+                obstacle.prev_obstacle.next_obstacle = obstacle
             
-    #         if i == len(vertices) - 1:
-    #             obstacle.next_obstacle = self.obstacles[obstacle_no]
-    #             obstacle.next_obstacle.prev_obstacle = obstacle
+            if i == len(vertices) - 1:
+                obstacle.next_obstacle = self.obstacles[obstacle_no]
+                obstacle.next_obstacle.prev_obstacle = obstacle
             
-    #         obstacle.unit_dir = normalize(vertices[(0 if i == len(vertices) - 1 else i + 1)] - vertices[i])
+            obstacle.unit_dir = normalize(vertices[(0 if i == len(vertices) - 1 else i + 1)] - vertices[i])
 
-    #         if len(vertices) == 2:
-    #             obstacle.is_convex = True
-    #         else:
-    #             obstacle.is_convex = (leftOf(vertices[(len(vertices) - 1 if i == 0 else i - 1)], vertices[i], vertices[(0 if i == len(vertices) - 1 else i + 1)]) >= 0.0)
+            if len(vertices) == 2:
+                obstacle.is_convex = True
+            else:
+                obstacle.is_convex = (leftOf(vertices[(len(vertices) - 1 if i == 0 else i - 1)], vertices[i], vertices[(0 if i == len(vertices) - 1 else i + 1)]) >= 0.0)
             
-    #         obstacle.id = len(self.obstacles)
-    #         self.obstacles.append(obstacle)
+            obstacle.id = len(self.obstacles)
+            self.obstacles.append(obstacle)
         
-    #     return obstacle_no
+        return obstacle_no
 
     def do_step(self):
         self.kd_tree.build_agent_tree()
 
         for agent in self.agents:
-            agent._update_pref_velocity()
-            agent._compute_neighbors()
-            agent._deterministic_orca_lines()
-            agent.compute_new_velocity_copt()
+            agent.compute_neighbors()
+            agent.compute_new_velocity()
         
         for agent in self.agents:
             agent.update()
@@ -250,7 +246,7 @@ class RVOSimulator:
 
     # Aliases for compatibility
     addAgent = add_agent
-    # addObstacle = add_obstacle
+    addObstacle = add_obstacle
     doStep = do_step
     getAgentAgentNeighbor = get_agent_agent_neighbor
     getAgentMaxNeighbors = get_agent_max_neighbors
