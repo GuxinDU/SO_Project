@@ -2,7 +2,7 @@ from .vector import Vector2, normalize, abs_vector, abs_sq
 from .agent import Agent
 from .obstacle import Obstacle
 from .kdtree import KdTree
-from .utils import leftOf
+from .utils import leftOf, sqr
 
 RVO_ERROR = -1
 
@@ -21,6 +21,11 @@ class RVOSimulator:
         self.global_time = 0.0
         self.kd_tree = KdTree(self)
         self.obstacles = []
+        self.agents_on_the_way = []
+        self.position_list = []
+        self.velocity_list = []
+        self.relax_times = {}
+        self.arrive_dict = {}
 
         velocity = to_vector(velocity)
         if velocity is None:
@@ -35,7 +40,7 @@ class RVOSimulator:
              self.default_agent.time_horizon = time_horizon
              self.default_agent.velocity = velocity
     
-    def add_agent(self, position, goal, neighbor_dist=None, max_neighbors=None, time_horizon=None, radius=None, max_speed=None, velocity=None):
+    def add_agent(self, position, goal, neighbor_dist=None, max_neighbors=None, time_horizon=None, radius=1.0, max_speed=2.0, velocity=None):
         position = to_vector(position)
         velocity = to_vector(velocity)
         goal = to_vector(goal)
@@ -55,7 +60,9 @@ class RVOSimulator:
             agent.goal_position = goal # Set goal position
             agent.id = len(self.agents)
             agent._init_qp_model() # Initialize QP model
+            agent._init_error_generator((-0.15, 0.15), (-0.15, 0.15), (-0.07, 0.07))
             self.agents.append(agent)
+            self.agents_on_the_way.append(agent)
             return len(self.agents) - 1
         else:
             agent = Agent(self)
@@ -69,7 +76,9 @@ class RVOSimulator:
             agent.goal_position = goal # Set goal position
             agent.id = len(self.agents)
             agent._init_qp_model() # Initialize QP model
+            agent._init_error_generator((-0.15, 0.15), (-0.15, 0.15), (-0.07, 0.07))
             self.agents.append(agent)
+            self.agents_on_the_way.append(agent)
             return len(self.agents) - 1
 
     # def add_obstacle(self, vertices):
@@ -108,19 +117,138 @@ class RVOSimulator:
         
     #     return obstacle_no
 
+    def check_positions(self):
+        pos_dict = {i: agent.position.to_array() for i, agent in enumerate(self.agents)}
+        self.position_list.append(pos_dict)
+    
+    def init_relax_times(self):
+        self.relax_times = {i:0 for i in range(len(self.agents))}
+
+    def init_arrive_dict(self):
+        self.arrive_dict = {i:False for i in range(len(self.agents))}
+
+    def check_collisions(self):
+        self.kd_tree.build_agent_tree()
+        max_radius = 0.0
+        for agent in self.agents:
+            if agent.radius > max_radius:
+                max_radius = agent.radius
+        
+        collisions = []
+        for agent in self.agents:
+            range_sq = sqr(agent.radius + max_radius)
+            potential_collisions = []
+            self.kd_tree.query_potential_collisions(agent, range_sq, potential_collisions)
+            
+            for other in potential_collisions:
+                if agent.id < other.id:
+                    dist_sq = abs_sq(agent.position - other.position)
+                    if dist_sq < sqr(agent.radius + other.radius):
+                        collisions.append((agent.id, other.id))
+        return collisions
+
     def do_step(self):
         self.kd_tree.build_agent_tree()
+        velocity_dict = {i:0.0 for i in range(len(self.agents))}
+        for i, agent in enumerate(self.agents):
+            if not self.arrive_dict[i]:
+                agent._update_pref_velocity()
+                agent._compute_neighbors()
+                agent._deterministic_orca_lines()
+                status = agent.compute_new_velocity_copt()
+                self.relax_times[agent.id] += status
+                velocity_dict[agent.id] = agent.new_velocity
+        self.velocity_list.append(velocity_dict)
+        
+        # for i in range(len(self.agents_on_the_way)-1, -1, -1):
+        for i, agent in enumerate(self.agents):
+            if not self.arrive_dict[i]:
+                agent.update()
+                if agent._check_arrival():
+                    self.arrive_dict[i] = True
+        self.check_positions()
+        self.global_time += self.time_step
+        if all(self.arrive_dict.values()):
+            print("All agents have reached their goals.")
+            return True
+        return False
 
-        for agent in self.agents:
+    def do_step_point_estimation(self, sample_budget=10):
+        self.kd_tree.build_agent_tree()
+        velocity_dict = {i:0.0 for i in range(len(self.agents))}
+        for i, agent in enumerate(self.agents_on_the_way):
             agent._update_pref_velocity()
             agent._compute_neighbors()
-            agent._deterministic_orca_lines()
-            agent.compute_new_velocity_copt()
+            # agent._deterministic_orca_lines()
+            agent._orca_lines_point_estimation(sample_budget)
+            status = agent.compute_new_velocity_copt()
+            self.relax_times[agent.id] += status
+            velocity_dict[agent.id] = agent.new_velocity.to_array()
+        self.velocity_list.append(velocity_dict)
         
-        for agent in self.agents:
+        for i in range(len(self.agents_on_the_way)-1, -1, -1):
+            agent = self.agents_on_the_way[i]
             agent.update()
-        
+            if agent._check_arrival():
+                self.agents_on_the_way.pop(i)
+        self.check_positions()
         self.global_time += self.time_step
+        if len(self.agents_on_the_way) == 0:
+            print("All agents have reached their goals.")
+            return True
+        return False
+
+    def do_step_saa(self, sample_budget=10):
+        self.kd_tree.build_agent_tree()
+        velocity_dict = {i:0.0 for i in range(len(self.agents))}
+        for i, agent in enumerate(self.agents_on_the_way):
+            agent._update_pref_velocity()
+            agent._compute_neighbors()
+            # agent._deterministic_orca_lines()
+            agent._orca_lines_saa(sample_budget)
+            status = agent.compute_new_velocity_copt()
+            self.relax_times[agent.id] += status
+            velocity_dict[agent.id] = agent.new_velocity.to_array()
+        self.velocity_list.append(velocity_dict)
+        
+        for i in range(len(self.agents_on_the_way)-1, -1, -1):
+            agent = self.agents_on_the_way[i]
+            agent.update()
+            if agent._check_arrival():
+                self.agents_on_the_way.pop(i)
+        self.check_positions()
+        self.global_time += self.time_step
+        if len(self.agents_on_the_way) == 0:
+            print("All agents have reached their goals.")
+            return True
+        return False
+
+    def do_step_robust(self, sample_budget=0.15):
+        self.kd_tree.build_agent_tree()
+        velocity_dict = {i:0.0 for i in range(len(self.agents))}
+        for i, agent in enumerate(self.agents_on_the_way):
+            agent._update_pref_velocity()
+            agent._compute_neighbors()
+            # agent._deterministic_orca_lines()
+            agent._orca_lines_robust(sample_budget)
+            status = agent.compute_new_velocity_copt()
+            self.relax_times[agent.id] += status
+            velocity_dict[agent.id] = agent.new_velocity.to_array()
+        self.velocity_list.append(velocity_dict)
+        
+        for i in range(len(self.agents_on_the_way)-1, -1, -1):
+            agent = self.agents_on_the_way[i]
+            agent.update()
+            if agent._check_arrival():
+                self.agents_on_the_way.pop(i)
+        self.check_positions()
+        self.global_time += self.time_step
+        if len(self.agents_on_the_way) == 0:
+            print("All agents have reached their goals.")
+            return True
+        return False
+
+
 
     def get_agent_agent_neighbor(self, agent_no, neighbor_no):
         return self.agents[agent_no].agent_neighbors[neighbor_no][1].id

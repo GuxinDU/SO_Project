@@ -1,4 +1,5 @@
 import math
+import numpy as np
 
 class Vector2:
     def __init__(self, x=0.0, y=0.0):
@@ -7,6 +8,9 @@ class Vector2:
 
     def __neg__(self):
         return Vector2(-self.x, -self.y)
+    
+    def to_array(self):
+        return np.array([self.x, self.y])
 
     # Inner product
     def __mul__(self, other):

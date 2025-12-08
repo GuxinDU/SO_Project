@@ -1,10 +1,15 @@
 from .vector import Vector2, abs_sq, det, normalize, abs_vector
 from .utils import RVO_EPSILON, distSqPointLineSegment, sqr
 from .line import Line
+from .random_generator import RandomGenerator
 import math
+import numpy as np
 from coptpy import *
+from .agent_point_estimation import AgentPointEstimation
+from .agent_saa import AgentSAA
+from .agent_robust import AgentRobust
 
-class Agent:
+class Agent(AgentPointEstimation, AgentSAA, AgentRobust):
     def __init__(self, sim):
         self.agent_neighbors = [] # list of (distSq, agent)
         self.max_neighbors = 0
@@ -27,15 +32,33 @@ class Agent:
         self.varx = None
         self.vary = None
 
+        self.error_generator = None
+        # self._init_error_generator((-0.15, 0.15), (-0.15, 0.15), (-0.07, 0.07))
+        # self._init_qp_model()
+
+    def _init_error_generator(self, x_range, y_range, mean_range):
+        x_mean = np.random.uniform(mean_range[0], mean_range[1])
+        # x_mean = np.random.uniform(-0.07, 0.07)
+        y_mean = np.random.uniform(mean_range[0], mean_range[1])
+        # y_mean = np.random.uniform(-0.07, 0.07)
+        self.error_generator = RandomGenerator(x_range, y_range, (x_mean, y_mean))
+
     def _init_qp_model(self):
         self.env = Envr()
         self.qp = self.env.createModel()
         # self.qp = Model()
         self.qp.setParam('Logging', 0)  # Suppress output
         self.qp.setParam('threads', 1)     # Single thread for deterministic behavior
+        self.qp.setParam('TimeLimit', 10)  # Time limit per solve in seconds
         self.varx = self.qp.addVar(lb = -COPT.INFINITY, ub = COPT.INFINITY, vtype=COPT.CONTINUOUS)
         self.vary = self.qp.addVar(lb = -COPT.INFINITY, ub = COPT.INFINITY, vtype=COPT.CONTINUOUS)
         self.qp.addQConstr(self.varx ** 2 + self.vary ** 2 <= self.max_speed * self.max_speed)
+
+    def _check_arrival(self):
+        dist_to_goal_sq = abs_sq(self.goal_position - self.position)
+        if dist_to_goal_sq < 1e-4:
+            return True
+        return False
 
     def _update_pref_velocity(self):
         pref_velocity = (self.goal_position - self.position)/self.sim.time_step
@@ -107,6 +130,7 @@ class Agent:
         
         if success:
             self.new_velocity = result_vel
+            return 0
         else:
             # 2. If infeasible (equivalent to LP3), solve for minimum constraint violation
             # Minimize z (slack) subject to relaxed ORCA lines and Max Speed
@@ -114,7 +138,9 @@ class Agent:
             print('---Agent {} Relaxed---'.format(self.id), success_relax, result_vel_relax)
             if success_relax:
                 self.new_velocity = result_vel_relax
+                return 1
             # If both fail, keep previous velocity or set to zero (fallback)
+
 
     def solve_copt_qp(self):
         constrs = {}
@@ -131,14 +157,15 @@ class Agent:
             for constr in constrs.values():
                 self.qp.remove(constr)
             return True, Vector2(x_val, y_val)
-        elif self.qp.Status == COPT.INFEASIBLE:
-            for constr in constrs.values():
-                self.qp.remove(constr)
-            return False, None
+        # elif self.qp.Status == COPT.INFEASIBLE:
         else:
             for constr in constrs.values():
                 self.qp.remove(constr)
-            raise Exception("COPT optimization failed with status: {}".format(self.qp.getStatus()))
+            return False, None
+        # else:
+        #     for constr in constrs.values():
+        #         self.qp.remove(constr)
+        #     raise Exception("COPT optimization failed with status: {}".format(self.qp.Status))
         
     def solve_copt_relaxation(self):
         violation_var = self.qp.addVar(0.0, COPT.INFINITY, vtype=COPT.CONTINUOUS, name="violation")
@@ -160,7 +187,7 @@ class Agent:
             self.qp.remove(violation_var)
             for constr in constrs.values():
                 self.qp.remove(constr)
-            raise Exception("COPT relaxation optimization failed with status: {}".format(self.qp.getStatus()))
+            raise Exception("COPT relaxation optimization failed with status: {}".format(self.qp.Status))
 
 
 

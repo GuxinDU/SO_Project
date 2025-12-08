@@ -286,3 +286,31 @@ class KdTree:
                     sqr(point2_left_of_q) * inv_length_q > sqr(radius) and \
                     self.query_visibility_recursive(q1, q2, radius, node.left) and \
                     self.query_visibility_recursive(q1, q2, radius, node.right))
+
+    def query_potential_collisions(self, agent, range_sq, results):
+        self.query_potential_collisions_recursive(agent, range_sq, 0, results)
+
+    def query_potential_collisions_recursive(self, agent, range_sq, node, results):
+        if self.agent_tree[node].end - self.agent_tree[node].begin <= MAX_LEAF_SIZE:
+            for i in range(self.agent_tree[node].begin, self.agent_tree[node].end):
+                if self.agents[i].id != agent.id:
+                    dist_sq = abs_sq(self.agents[i].position - agent.position)
+                    if dist_sq < range_sq:
+                        results.append(self.agents[i])
+        else:
+            dist_sq_left = sqr(max(0.0, self.agent_tree[self.agent_tree[node].left].min_x - agent.position.x)) + \
+                           sqr(max(0.0, agent.position.x - self.agent_tree[self.agent_tree[node].left].max_x)) + \
+                           sqr(max(0.0, self.agent_tree[self.agent_tree[node].left].min_y - agent.position.y)) + \
+                           sqr(max(0.0, agent.position.y - self.agent_tree[self.agent_tree[node].left].max_y))
+            
+            dist_sq_right = sqr(max(0.0, self.agent_tree[self.agent_tree[node].right].min_x - agent.position.x)) + \
+                            sqr(max(0.0, agent.position.x - self.agent_tree[self.agent_tree[node].right].max_x)) + \
+                            sqr(max(0.0, self.agent_tree[self.agent_tree[node].right].min_y - agent.position.y)) + \
+                            sqr(max(0.0, agent.position.y - self.agent_tree[self.agent_tree[node].right].max_y))
+
+            if dist_sq_left < range_sq:
+                self.query_potential_collisions_recursive(agent, range_sq, self.agent_tree[node].left, results)
+            
+            if dist_sq_right < range_sq:
+                self.query_potential_collisions_recursive(agent, range_sq, self.agent_tree[node].right, results)
+
