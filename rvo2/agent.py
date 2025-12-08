@@ -126,7 +126,7 @@ class Agent(AgentPointEstimation, AgentSAA, AgentRobust):
         # 1. Try to solve the standard RVO problem:
         # Minimize ||v - v_pref||^2 subject to ORCA lines and Max Speed
         success, result_vel = self.solve_copt_qp()
-        print('---Agent {}---'.format(self.id), success, result_vel, self.pref_velocity)
+        # print('---Agent {}---'.format(self.id), success, result_vel, self.pref_velocity)
         
         if success:
             self.new_velocity = result_vel
@@ -135,7 +135,7 @@ class Agent(AgentPointEstimation, AgentSAA, AgentRobust):
             # 2. If infeasible (equivalent to LP3), solve for minimum constraint violation
             # Minimize z (slack) subject to relaxed ORCA lines and Max Speed
             success_relax, result_vel_relax = self.solve_copt_relaxation()
-            print('---Agent {} Relaxed---'.format(self.id), success_relax, result_vel_relax)
+            # print('---Agent {} Relaxed---'.format(self.id), success_relax, result_vel_relax)
             if success_relax:
                 self.new_velocity = result_vel_relax
                 return 1

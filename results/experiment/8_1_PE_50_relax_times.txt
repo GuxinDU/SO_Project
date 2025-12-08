@@ -1,0 +1,8 @@
+Agent 0: 2
+Agent 1: 7
+Agent 2: 0
+Agent 3: 7
+Agent 4: 7
+Agent 5: 0
+Agent 6: 7
+Agent 7: 3

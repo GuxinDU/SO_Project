@@ -3,6 +3,8 @@ from .agent import Agent
 from .obstacle import Obstacle
 from .kdtree import KdTree
 from .utils import leftOf, sqr
+import re
+import numpy as np
 
 RVO_ERROR = -1
 
@@ -60,7 +62,7 @@ class RVOSimulator:
             agent.goal_position = goal # Set goal position
             agent.id = len(self.agents)
             agent._init_qp_model() # Initialize QP model
-            agent._init_error_generator((-0.15, 0.15), (-0.15, 0.15), (-0.07, 0.07))
+            agent._init_error_generator((-0.1414, 0.1414), (-0.1414, 0.1414), (-0.07, 0.07))
             self.agents.append(agent)
             self.agents_on_the_way.append(agent)
             return len(self.agents) - 1
@@ -369,6 +371,100 @@ class RVOSimulator:
 
     def set_time_step(self, time_step):
         self.time_step = time_step
+
+    def save_positions(self, filename):
+        with open(filename, 'w') as f:
+            f.write(f"Simulation has {len(self.agents)} agents and {len(self.obstacles)} obstacle vertices in it.\n")
+            f.write("Running simulation\n")
+            for step, pos_dict in enumerate(self.position_list):
+                t = step * self.time_step
+                line = f"step= {step}  t={t:.3f} "
+                for agent_id in sorted(pos_dict.keys()):
+                    pos = pos_dict[agent_id]
+                    if hasattr(pos, 'x') and hasattr(pos, 'y'):
+                        x, y = pos.x, pos.y
+                    elif hasattr(pos, '__getitem__'):
+                        x, y = pos[0], pos[1]
+                    else:
+                        x, y = 0.0, 0.0
+                    line += f" ({x:.3f}, {y:.3f}) "
+                f.write(line.strip() + "\n")
+
+    def save_velocities(self, filename):
+        with open(filename, 'w') as f:
+            for step, vel_dict in enumerate(self.velocity_list):
+                t = step * self.time_step
+                line = f"step= {step}  t={t:.3f} "
+                for agent_id in sorted(vel_dict.keys()):
+                    vel = vel_dict[agent_id]
+                    if hasattr(vel, 'x') and hasattr(vel, 'y'):
+                        x, y = vel.x, vel.y
+                    elif hasattr(vel, '__getitem__'):
+                        x, y = vel[0], vel[1]
+                    else:
+                        x, y = 0.0, 0.0
+                    line += f" ({x:.3f}, {y:.3f}) "
+                f.write(line.strip() + "\n")
+
+    def save_relax_times(self, filename):
+        with open(filename, 'w') as f:
+            for agent_id, time in self.relax_times.items():
+                f.write(f"Agent {agent_id}: {time}\n")
+
+    def load_positions(self, filename):
+        self.position_list = []
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        
+        coord_pattern = r'\(([^)]+)\)'
+        for line in lines:
+            line = line.strip()
+            if line.startswith('step='):
+                matches = re.findall(coord_pattern, line)
+                if matches:
+                    pos_dict = {}
+                    for i, match in enumerate(matches):
+                        x_str, y_str = match.split(',')
+                        x = float(x_str.strip())
+                        y = float(y_str.strip())
+                        pos_dict[i] = np.array([x, y])
+                    self.position_list.append(pos_dict)
+
+    def load_velocities(self, filename):
+        self.velocity_list = []
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        
+        coord_pattern = r'\(([^)]+)\)'
+        for line in lines:
+            line = line.strip()
+            if line.startswith('step='):
+                matches = re.findall(coord_pattern, line)
+                if matches:
+                    vel_dict = {}
+                    for i, match in enumerate(matches):
+                        x_str, y_str = match.split(',')
+                        x = float(x_str.strip())
+                        y = float(y_str.strip())
+                        vel_dict[i] = np.array([x, y])
+                    self.velocity_list.append(vel_dict)
+
+    def load_relax_times(self, filename):
+        self.relax_times = {}
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            if line.startswith('Agent'):
+                parts = line.split(':')
+                if len(parts) == 2:
+                    agent_part = parts[0].strip()
+                    time_part = parts[1].strip()
+                    try:
+                        agent_id = int(agent_part.split()[1])
+                        time = float(time_part)
+                        self.relax_times[agent_id] = time
+                    except ValueError:
+                        pass
 
     def compute_total_distance_to_goals(self):
         total_distance = 0.0
