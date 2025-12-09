@@ -8,8 +8,9 @@ from coptpy import *
 from .agent_point_estimation import AgentPointEstimation
 from .agent_saa import AgentSAA
 from .agent_robust import AgentRobust
+from .agent_extend_radius import AgentExtendRadius
 
-class Agent(AgentPointEstimation, AgentSAA, AgentRobust):
+class Agent(AgentPointEstimation, AgentSAA, AgentRobust, AgentExtendRadius):
     def __init__(self, sim):
         self.agent_neighbors = [] # list of (distSq, agent)
         self.max_neighbors = 0

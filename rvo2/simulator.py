@@ -225,7 +225,7 @@ class RVOSimulator:
             return True
         return False
 
-    def do_step_robust(self, sample_budget=0.15):
+    def do_step_robust(self, sample_budget=0.2):
         self.kd_tree.build_agent_tree()
         velocity_dict = {i:0.0 for i in range(len(self.agents))}
         for i, agent in enumerate(self.agents_on_the_way):
@@ -233,6 +233,32 @@ class RVOSimulator:
             agent._compute_neighbors()
             # agent._deterministic_orca_lines()
             agent._orca_lines_robust(sample_budget)
+            status = agent.compute_new_velocity_copt()
+            self.relax_times[agent.id] += status
+            velocity_dict[agent.id] = agent.new_velocity.to_array()
+        self.velocity_list.append(velocity_dict)
+        
+        for i in range(len(self.agents_on_the_way)-1, -1, -1):
+            agent = self.agents_on_the_way[i]
+            agent.update()
+            if agent._check_arrival():
+                self.agents_on_the_way.pop(i)
+        self.check_positions()
+        self.global_time += self.time_step
+        if len(self.agents_on_the_way) == 0:
+            print("All agents have reached their goals.")
+            return True
+        return False
+
+    def do_step_extend_radius(self, radius_budget=0.2):
+        self.kd_tree.build_agent_tree()
+        velocity_dict = {i:0.0 for i in range(len(self.agents))}
+        for i, agent in enumerate(self.agents_on_the_way):
+            agent._update_pref_velocity()
+            agent._compute_neighbors()
+            # agent._deterministic_orca_lines()
+            # agent._orca_lines_robust(sample_budget)
+            agent._orca_lines_extend_radius(radius_budget)
             status = agent.compute_new_velocity_copt()
             self.relax_times[agent.id] += status
             velocity_dict[agent.id] = agent.new_velocity.to_array()

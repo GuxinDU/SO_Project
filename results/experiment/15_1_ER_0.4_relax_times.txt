@@ -1,0 +1,15 @@
+Agent 0: 1
+Agent 1: 10
+Agent 2: 14
+Agent 3: 0
+Agent 4: 0
+Agent 5: 6
+Agent 6: 4
+Agent 7: 2
+Agent 8: 4
+Agent 9: 8
+Agent 10: 5
+Agent 11: 2
+Agent 12: 0
+Agent 13: 8
+Agent 14: 0

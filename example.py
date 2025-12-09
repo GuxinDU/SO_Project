@@ -101,6 +101,8 @@ def run_simulation(agent_count, example_id, method, sample_budget=None, radius_b
         namestring += f"_SAA_{sample_budget:d}"
     if method == 2:
         namestring += f"_RO_{radius_budget:.1f}"
+    if method == 3:
+        namestring += f"_ER_{radius_budget:.1f}"
     is_arrived = False
     sim.init_relax_times()
     sim.init_arrive_dict()
@@ -114,6 +116,8 @@ def run_simulation(agent_count, example_id, method, sample_budget=None, radius_b
             is_arrived = sim.do_step_saa(sample_budget)
         elif method == 2:
             is_arrived = sim.do_step_robust(radius_budget)
+        elif method == 3:
+            is_arrived = sim.do_step_extend_radius(radius_budget)
         step += 1
     print('Simulation finished')
     print('Relaxation times:', sum(sim.relax_times.values()))
@@ -137,8 +141,8 @@ if __name__ == "__main__":
         os.makedirs(os.path.join(current_dir, 'results/experiment'))
     for agent_count in [4]:
         for example_id in [1, 2]:
-            for method in [0, 1, 2]:
-            # for method in [0]:
+            # for method in [0, 1, 2]:
+            for method in [3]:
                 if method == 0:
                     # for sb in [1, 10, 100]:
                     for sb in [1, 10, 50]:
@@ -147,12 +151,15 @@ if __name__ == "__main__":
                     for sb in [10, 50]:
                         run_simulation(agent_count, example_id, method, sample_budget=sb)
                 if method == 2:
+                    for rb in [0.2, 0.4]:
+                        run_simulation(agent_count, example_id, method, radius_budget=rb)
+                if method == 3:
                     for rb in [0.2, 0.4]:
                         run_simulation(agent_count, example_id, method, radius_budget=rb)
     for agent_count in [8]:
         for example_id in [1, 2]:
-            for method in [0, 1, 2]:
-            # for method in [0]:
+            # for method in [0, 1, 2]:
+            for method in [3]:
                 if method == 0:
                     # for sb in [1, 10, 100]:
                     for sb in [1, 10, 50]:
@@ -161,12 +168,15 @@ if __name__ == "__main__":
                     for sb in [10, 50]:
                         run_simulation(agent_count, example_id, method, sample_budget=sb)
                 if method == 2:
+                    for rb in [0.2, 0.4]:
+                        run_simulation(agent_count, example_id, method, radius_budget=rb)
+                if method == 3:
                     for rb in [0.2, 0.4]:
                         run_simulation(agent_count, example_id, method, radius_budget=rb)
     for agent_count in [15]:
         for example_id in [1,2]:
-            for method in [0, 1, 2]:
-            # for method in [0]:
+            # for method in [0, 1, 2]:
+            for method in [3]:
                 if method == 0:
                     # for sb in [1, 10, 100]:
                     for sb in [1, 10, 50]:
@@ -177,7 +187,11 @@ if __name__ == "__main__":
                 if method == 2:
                     for rb in [0.2, 0.4]:
                         run_simulation(agent_count, example_id, method, radius_budget=rb)
-
+                if method == 3:
+                    for rb in [0.2, 0.4]:
+                        run_simulation(agent_count, example_id, method, radius_budget=rb)
+ 
+ 
 # # Interactive Input
 # print("Available Scenarios: 4_1, 4_2, 4_3, 8_1, 8_2, 8_3, 15_1, 15_2, 15_3")
 # scenario_input = input("Enter scenario (e.g. 8_3): ")

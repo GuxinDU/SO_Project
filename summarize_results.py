@@ -21,7 +21,7 @@ def summarize():
     # Define the loops as in example.py
     agent_counts = [4, 8, 15]
     example_ids = [1, 2]
-    methods = [0, 1, 2] # 0: PE, 1: SAA, 2: RO
+    methods = [0, 1, 2, 3] # 0: PE, 1: SAA, 2: RO, 3: ER
 
     for agent_count in agent_counts:
         for example_id in example_ids:
@@ -36,6 +36,9 @@ def summarize():
                 elif method == 2: # RO
                     for rb in [0.2, 0.4]:
                         configs.append(({'radius_budget': rb}, f"_RO_{rb:.1f}"))
+                elif method == 3: # ER
+                    for rb in [0.2, 0.4]:
+                        configs.append(({'radius_budget': rb}, f"_ER_{rb:.1f}"))
                 
                 for params, suffix in configs:
                     namestring = f"{agent_count}_{example_id}{suffix}"
@@ -67,7 +70,7 @@ def summarize():
                     row = {
                         'Agent Count': agent_count,
                         'Example ID': example_id,
-                        'Method': ['PE', 'SAA', 'RO'][method],
+                        'Method': ['PE', 'SAA', 'RO', 'ER'][method],
                         'Parameter': list(params.values())[0],
                         'Steps': steps,
                         'Total Collisions (Agent-Steps)': total_collisions,
