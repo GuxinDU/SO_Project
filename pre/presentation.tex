@@ -1,0 +1,662 @@
+\documentclass{beamer}
+
+\usepackage{graphicx}
+\usepackage{animate}
+\usepackage{bm,amsmath,amssymb,amsfonts}
+\usepackage{multirow, booktabs}
+
+
+\usepackage{lmodern} 
+\usefonttheme{professionalfonts}
+
+
+
+\renewcommand{\vec}[1]{\bm{#1}}
+
+
+\usepackage[utf8]{inputenc}
+
+
+
+\usetheme{Madrid}
+\usecolortheme{dolphin}
+
+
+
+
+
+\title{Robust ORCA: Ellipsoidal Uncertainty}
+\author{Zhaoli Wang \and Guxin Du \and Yiran Yang}
+\date{\today}
+
+\begin{document}
+
+% ------------------------------------------------------
+\frame{\titlepage}
+% ------------------------------------------------------
+
+\section{MAPP}
+
+\begin{frame}{Multi-Agent Path Planning (MAPP)}
+\textbf{Problem setting:}
+\begin{itemize}
+    \item We consider $N$ agents moving in a shared 2D workspace.
+    \item Each agent chooses a velocity and then moves in a 
+          \textbf{straight line} at constant speed.
+    \item After a fixed time step, each agent updates its velocity again.
+    \item The key requirement: \textbf{agents must avoid collisions} 
+          while moving toward their goals.
+\end{itemize}
+
+\vspace{2mm}
+\textbf{Goal:}
+\begin{itemize}
+    \item Enable all agents to reach their destinations efficiently
+          \textbf{without colliding}.
+\end{itemize}
+\end{frame}
+
+
+
+
+% ------------------------------------------------------
+\begin{frame}{Key Challenges in MAPP}
+\small
+\textbf{1. Multi-stage decision making}
+\begin{itemize}
+    \item Agents repeatedly select velocities and update their positions.
+    \item Decisions across time steps are tightly coupled.
+\end{itemize}
+
+\vspace{2mm}
+\textbf{2. Centralized coupling}
+\begin{itemize}
+    \item A centralized solver must choose velocities for all agents jointly.
+    \item The number of pairwise collision constraints scales as $O(N^2)$.
+\end{itemize}
+
+\vspace{2mm}
+\textbf{3. Non-convex feasible region}
+\begin{itemize}
+    \item Collision avoidance requires
+    \[
+        \|\vec p_i + t\,\vec v_i 
+          - (\vec p_j + t\,\vec v_j)\|_2 
+        \;\ge\; r_i + r_j,
+        \quad \forall\,  t \in [t_{cur}, t_{cur} + \tau].
+    \]
+    \item The feasible set of $\vec v_i$ is the complement of a disk
+          in velocity space $\Rightarrow$ non-convex.
+\end{itemize}
+
+\vspace{2mm}
+\textbf{4. Uncertainty in real systems}
+\begin{itemize}
+    \item Sensing and actuation noise make future positions uncertain.
+\end{itemize}
+
+\end{frame}
+% ------------------------------------------------------
+
+
+
+
+
+
+\section{ORCA}
+
+
+% ------------------------------------------------------
+
+% ------------------------------------------------------
+\begin{frame}{ORCA: Advantages and Applications}
+\textbf{Key advantages}
+\begin{itemize}
+    \item \textbf{Fully decentralized}: each agent selects its own velocity using only local neighbor information.
+    \item \textbf{One-step decision making}: at every time step ORCA chooses a velocity for the next horizon, without planning a full trajectory.
+    \item \textbf{Real-time performance}: scales to thousands of agents at interactive frame rates.
+\end{itemize}
+
+\vspace{0.4cm}
+\textbf{Application domains}
+\begin{itemize}
+    \item Video games and animation (e.g., crowd scenes in \emph{Warhammer 40,000: Space Marine} and other AAA titles).
+    \item Pre-training / guiding RL policies for crowd and robot navigation.
+    \item Large-scale, high-density scenarios
+\end{itemize}
+\end{frame}
+
+% ------------------------------------------------------
+\begin{frame}{ORCA: Basic Idea}
+\begin{itemize}
+    \item At each decision step and for each neighbor $j$, define a velocity obstacle
+    \[
+        \mathrm{VO}_{i|j}^\tau
+        :=
+        \bigl\{\, v_i-v_j \in \mathbb{R}^2
+        \;\big|\;\text{ leads to collision within horizon }\tau
+        \bigr\}.
+    \]
+    \item Relax $\mathrm{VO}_{i|j}^\tau$ into a separating half-space, and then,
+      by the reciprocal protocol, assign half of this avoidance responsibility
+      to agent $i$ as $\mathrm{ORCA}_{i|j}^\tau$.
+    \item The feasible velocity region for agent $i$ is the intersection
+    \[
+        \mathcal{V}_i^\tau
+        =
+        \bigcap_{j \in \mathcal{N}_i} \mathrm{ORCA}_{i|j}^\tau.
+    \]
+    \item Update velocity by projecting the preferred velocity onto this feasible set:
+    \[
+        v_i^{\text{new}}
+        =
+        \arg\min_{v \in \mathcal{V}_i^\tau}
+        \| v - v_i^{\text{pref}} \|_2^2.
+    \]
+\end{itemize}
+\end{frame}
+% ------------------------------------------------------
+
+\begin{frame}{ORCA: Feasible Region Relaxation}
+  \centering
+  \includegraphics[width=0.8\textwidth]{1.jpg}
+\end{frame}
+
+
+% ------------------------------------------------------
+\begin{frame}{ORCA: Optimization Model}
+
+\textbf{Optimization formulation for agent $i$:}
+\[
+\begin{aligned}
+    \min_{\vec v \in \mathbb{R}^2}\quad
+        & \|\vec v - \vec v_i^{\mathrm{pref}}\|_2^2 \\
+    \text{s.t.}\quad
+        & (\vec v - (\vec v_i + \tfrac12\, \vec u_{i|j}))^\top 
+          \vec n_{i|j} \;\ge\; 0,
+          \qquad \forall j \in \mathcal N_i, \\
+        & \|\vec v\|_2 \le v_i^{\max}.
+\end{aligned}
+\]
+
+\vspace{4mm}
+\textbf{Uncertainty model:}
+\begin{itemize}
+    \item The observed positions and velocities depend on a 
+          \textbf{joint noise vector}
+    \[
+        \boldsymbol{\xi} = (\xi_1, \xi_2, \dots, \xi_{|\mathcal{N}_i|}).
+    \]
+
+    \item The ORCA displacement and normal depend on this joint noise:
+    \[
+        \vec u_{i|j} = \vec u_{i|j}(\boldsymbol{\xi}),
+        \qquad
+        \vec n_{i|j} = \vec n_{i|j}(\boldsymbol{\xi}).
+    \]
+\end{itemize}
+
+\end{frame}
+% ------------------------------------------------------
+
+
+
+% % ------------------------------------------------------
+\section{Stochastic Optimization Models}
+
+\begin{frame}{Stochastic Model 1: Minimizing the Expected Loss}
+
+We model the ORCA update as a stochastic program:
+\[
+    z^\ast
+    =
+    \min_{\vec v \in X}
+    \; \mathbb{E}_{\boldsymbol{\xi}}
+    \bigl[\, f(\vec v, \boldsymbol{\xi}) \,\bigr].
+\]
+
+\vspace{3mm}
+\textbf{Random loss function:}
+\[
+f(\vec v, \boldsymbol{\xi})
+=
+\begin{cases}
+    \|\vec v - \vec v_i^{\mathrm{pref}}\|_2^2,
+    & \text{if ORCA constraints hold for all neighbors } j, \\[1mm]
+    +\infty,
+    & \text{otherwise.}
+\end{cases}
+\]
+
+\vspace{3mm}
+\textbf{Feasible set:}
+\[
+X = \{\, \vec v \in \mathbb{R}^2 : \|\vec v\|_2 \le v_i^{\max} \,\}.
+\]
+
+\end{frame}
+% % ------------------------------------------------------
+
+% ------------------------------------------------------
+\begin{frame}{Stochastic Model 2: Robust Optimization}
+
+\textbf{Uncertainty set:}
+\[
+    \boldsymbol{\xi} \in \Xi.
+\]
+
+\vspace{3mm}
+\textbf{Robust ORCA formulation for agent $i$:}
+\[
+\begin{aligned}
+    \min_{\vec v \in \mathbb{R}^2} \quad 
+        & \|\vec v - \vec v_i^{\mathrm{pref}}\|_2^2 \\
+    \text{s.t.} \quad
+        & (\vec v - (\vec v_i + \tfrac12\, \vec u_{i|j}(\boldsymbol{\xi})))^\top 
+          \vec n_{i|j}(\boldsymbol{\xi})
+          \;\ge\; 0, \\
+        & \qquad\qquad\qquad
+          \forall\, j \in \mathcal{N}_i,\;\forall\, \boldsymbol{\xi} \in \Xi, \\
+        & \|\vec v\|_2 \le v_i^{\max}.
+\end{aligned}
+\]
+
+\vspace{4mm}
+\textbf{Interpretation:}
+\begin{itemize}
+    \item The chosen velocity must remain collision-free
+          \textbf{for all} noise realizations in the uncertainty set $\Xi$.
+    \item Guarantees worst-case safety.
+\end{itemize}
+
+\end{frame}
+% ------------------------------------------------------
+
+% ------------------------------------------------------
+% \begin{frame}{Stochastic Model 3: Chance-Constrained Optimization}
+
+% \[
+% \begin{aligned}
+%     \min_{\vec v \in \mathbb{R}^2}\quad
+%         & \|\vec v - \vec v_i^{\mathrm{pref}}\|_2^2 \\
+%     \text{s.t.}\quad
+%         & \mathbb{P}\Big(
+%             (\vec v - (\vec v_i + \tfrac12\, \vec u_{i|j}(\boldsymbol{\xi})))^\top
+%             \vec n_{i|j}(\boldsymbol{\xi})
+%             \ge 0
+%           \Big)
+%           \;\ge\; 1 - \alpha_j,
+%           \quad \forall j \in \mathcal N_i,
+%           \\[2mm]
+%         & \textbf{or} \\[1mm]
+%         & \mathbb{P}\Big(
+%             (\vec v - (\vec v_i + \tfrac12\, \vec u_{i|j}(\boldsymbol{\xi})))^\top
+%             \vec n_{i|j}(\boldsymbol{\xi})
+%             \ge 0,\;\forall j \in \mathcal N_i
+%           \Big)
+%           \;\ge\; 1 - \alpha,
+%           \\[2mm]
+%         & \|\vec v\|_2 \le v_i^{\max}.
+% \end{aligned}
+% \]
+
+% \end{frame}
+% ------------------------------------------------------
+
+% ------------------------------------------------------
+\begin{frame}{Approximation Method: Sample Average Approximation}
+
+Given $N$ sampled noise realizations 
+$\{\boldsymbol{\xi}^{(1)}, \dots, \boldsymbol{\xi}^{(N)}\}$,
+
+\vspace{2mm}
+\textbf{SAA formulation:}
+\[
+\min_{\vec v \in \mathbb{R}^2}
+    \frac{1}{N}
+    \sum_{k=1}^{N}
+    f\bigl(\vec v, \boldsymbol{\xi}^{(k)}\bigr)
+\]
+
+\vspace{3mm}
+\textbf{Explicit SAA for ORCA:}
+\[
+\begin{aligned}
+    \min_{\vec v \in \mathbb{R}^2}\quad
+        & \frac{1}{N}
+          \sum_{k=1}^N 
+          \|\vec v - \vec v_i^{\mathrm{pref}}\|_2^2 \\
+    \text{s.t.}\quad
+        & (\vec v - (\vec v_i + \tfrac12\, 
+            \vec u_{i|j}(\boldsymbol{\xi}^{(k)})))^\top 
+          \vec n_{i|j}(\boldsymbol{\xi}^{(k)})
+          \;\ge\; 0, \\
+        & \qquad\qquad\forall j \in \mathcal N_i,\;\forall k = 1,\dots,N, \\
+        & \|\vec v\|_2 \le v_i^{\max}.
+\end{aligned}
+\]
+
+\vspace{3mm}
+\textbf{Notes:}
+\begin{itemize}
+    \item Converts the stochastic problem into a deterministic but larger QP.
+    \item Constraints scale linearly with sample size $N$.
+\end{itemize}
+
+\end{frame}
+% ------------------------------------------------------
+
+
+\section{Robust ORCA}
+
+
+\begin{frame}{A Closer Look at the VO}
+  \centering
+  \includegraphics[width=0.8\textwidth]{3.jpg}
+\end{frame}
+
+% ------------------------------------------------------
+
+\begin{frame}{A Closer Look at the VO}
+  \centering
+  \includegraphics[width=0.5\textwidth]{2.jpg}
+\end{frame}
+
+
+% ------------------------------------------------------
+\begin{frame}{Robust Optimization under Ellipsoidal Velocity Noise}
+
+\textbf{Uncertainty model:}
+\[
+    \tilde{\bm v}_j = \bar{\bm v}_j + \bm Q_j \xi_j,
+    \qquad \|\xi_j\|_2 \le \Gamma_j .
+\]
+
+\medskip
+
+When the closest point on the VO boundary lies on the extreme ray $\bm r_1$
+(rather than on the lower-right circular cap), the robust ORCA constraint for 
+agent $i$ w.r.t.\ neighbor $j$ is:
+
+\[
+    \bigl(
+        \bm v - (\bm v_i + \tfrac12\, \bm u_{i|j}(\xi_j))
+    \bigr)^\top
+    \bm n_{i|j}
+    \;\ge\; 0,
+    \qquad
+    \forall\, \|\xi_j\|_2 \le \Gamma_j .
+\]
+
+\medskip
+\textbf{This can be written in deterministic closed form as:}
+\[
+    \bm n_{i|j}^\top \bm v
+    \;\ge\;
+    \bm n_{i|j}^\top \bm v_i
+    + \tfrac12 \bm n_{i|j}^\top (\bm r_1 \bm r_1^\top - I)(\bm v_i - \bar{\bm v}_j)
+    + \tfrac12\,\Gamma_j
+      \bigl\| \bm Q_j^\top (I - \bm r_1 \bm r_1^\top)\, \bm n_{i|j} \bigr\|_2.
+\]
+
+\end{frame}
+% ------------------------------------------------------
+
+% ------------------------------------------------------
+\begin{frame}{Preliminaries: Affine Form of $\bm u_{i|j}(\xi_j)$}
+\small
+\textbf{Velocity noise model.}
+\[
+    \tilde{\bm v}_j 
+        = \bar{\bm v}_j + \bm Q_j \xi_j,
+    \qquad 
+    \|\xi_j\|_2 \le \Gamma_j .
+\]
+\[
+    \tilde{\bm v}_{i|j}
+    = \bm v_i - \tilde{\bm v}_j
+    = (\bm v_i - \bar{\bm v}_j) - \bm Q_j \xi_j
+    = \bar{\bm v}_{i|j} - \bm Q_j \xi_j .
+\]
+
+\medskip
+\textbf{Projection onto the extreme ray $\bm r_1$.}
+Assume the closest point on the VO boundary lies on the ray $\bm r_1$ with 
+$\|\bm r_1\|_2 = 1$:
+\[
+    \operatorname{Proj}_{\mathrm{span}\{\bm r_1\}}(\tilde{\bm v}_{i|j})
+    = (\tilde{\bm v}_{i|j}^\top \bm r_1)\,\bm r_1 .
+\]
+
+\medskip
+\textbf{ORCA displacement definition.}
+\[
+\begin{aligned}
+    \bm u_{i|j}(\xi_j)
+    &= \operatorname{Proj}_{\mathrm{span}\{\bm r_1\}}(\tilde{\bm v}_{i|j})
+       \;-\; \tilde{\bm v}_{i|j} \\[1mm]
+    &= \bigl(\bar{\bm v}_{i|j}^\top \bm r_1\bigr)\bm r_1 
+       \;-\; \bar{\bm v}_{i|j}
+       \;+\; (I - \bm r_1 \bm r_1^\top)\bm Q_j \xi_j \\[1mm]
+    &= (\bm r_1 \bm r_1^\top - I)(\bm v_i - \bar{\bm v}_j)
+       \;+\; (I - \bm r_1 \bm r_1^\top)\bm Q_j \xi_j .
+\end{aligned}
+\]
+
+\medskip
+\textbf{Affine form:}
+\[
+    \bm u_{i|j}(\xi_j)
+    =
+    \underbrace{(\bm r_1 \bm r_1^\top - I)(\bm v_i - \bar{\bm v}_j)}_{\displaystyle \bar{\bm u}_j}
+    \;+\;
+    \underbrace{(I - \bm r_1 \bm r_1^\top)\bm Q_j}_{\displaystyle \bm U_j}\,\xi_j .
+\]
+
+\normalsize
+\end{frame}
+% ------------------------------------------------------
+
+% ------------------------------------------------------
+\begin{frame}{Ben-Tal--Nemirovski Ellipsoidal Form}
+\footnotesize
+the robust ORCA constraint for agent $i$ w.r.t.\ neighbor $j$ is \[ \bigl( \bm v - (\bm v_i + \tfrac12\, \bm u_{i|j}(\xi_j)) \bigr)^\top \bm n_{i|j} \;\ge\; 0, \qquad \forall\, \|\xi_j\|_2 \le \Gamma_j . \]
+Define the augmented decision vector
+\[
+    \bm x := 
+    \begin{bmatrix}
+        \bm v \\ 1
+    \end{bmatrix}.
+\]
+
+The uncertain coefficient vector is
+\[
+    \tilde{\bm a}_j(\xi_j)
+    =
+    \begin{bmatrix}
+        -\,\bm n_{i|j} \\[1mm]
+        \bm n_{i|j}^\top \bm v_i
+        + \tfrac12\, \bm n_{i|j}^\top \bar{\bm u}_j
+    \end{bmatrix}
+    +
+    \begin{bmatrix}
+        \bm 0 \\[1mm]
+        -\tfrac12\, \bm U_j^\top \bm n_{i|j}
+    \end{bmatrix}
+    \xi_j .
+\]
+
+Thus the robust constraint becomes
+\[
+    \tilde{\bm a}_j(\xi_j)^\top \bm x \;\le\; 0,
+    \qquad
+    \forall\|\xi_j\|_2 \le \Gamma_j.
+\]
+
+This matches the standard Ben-Tal--Nemirovski ellipsoidal form:
+\[
+    \tilde{\bm a}_j(\xi_j)
+    = \bar{\bm a}_j + \bm B_j \xi_j,
+    \qquad
+    \|\xi_j\|_2 \le \Gamma_j.
+\]
+
+\end{frame}
+% ------------------------------------------------------
+
+% ------------------------------------------------------
+\begin{frame}{the Other Case}
+
+\small
+When the closest point on the VO boundary does \textbf{not} lie on either extreme
+rays, i.e., on the circular arc, the same
+robust-optimization framework still applies.
+
+\medskip
+\textbf{Key idea: geometric relaxation.}
+\begin{itemize}
+    \item Select a \textbf{supporting hyperplane} of the VO boundary together 
+          with its associated half-space that excludes the VO.
+    \item Instead of projecting onto $\mathrm{span}\{\bm r_1\}$ (extreme-ray case),
+          project the noisy relative velocity onto this supporting hyperplane.
+    \item This again yields a \textbf{Ben-Tal--Nemirovski ellipsoidal form} and
+          the same type of deterministic robust constraint.
+\end{itemize}
+
+\medskip
+\textbf{How to find the supporting hyperplane.}
+\begin{itemize}
+    \item Use the \textbf{nominal relative velocity} $\bar{\bm v}_{i|j}$ to identify the closest point 
+          on the VO boundary.
+    \item The tangent at that boundary point defines the supporting hyperplane
+          and thus the ORCA half-space.
+\end{itemize}
+
+
+\end{frame}
+% ------------------------------------------------------
+
+
+% ------------------------------------------------------
+\begin{frame}{Effect of Position Uncertainty on the VO}
+\small
+
+\textbf{Position uncertainty model.}
+\[
+    \tilde{\bm p}_j = \bar{\bm p}_j + E_j \,\zeta_j,
+    \qquad \|\zeta_j\|_2 \le \Gamma_j .
+\]
+
+\medskip
+\textbf{Impact on the VO geometry.}
+\begin{itemize}
+    \item Each noise realization $\zeta_j$ perturbs the relative position
+          and thus produces a \textbf{different VO}.
+    \item The uncertain VO is the \textbf{union} of these perturbed cones.
+    \item Because position noise only shifts or slightly rotates the VO apex
+          and boundary rays, the union remains a \textbf{truncated cone}.
+    \item Therefore, given the noise between the observation position and velocity are independent, the robust ORCA still works!
+\end{itemize}
+
+\end{frame}
+% ------------------------------------------------------
+
+
+
+% ------------------------------------------------------
+\begin{frame}{Position Uncertainty and Complexity Preservation}
+\small
+
+\begin{itemize}
+    \item Each neighbor $j$ contributes \textbf{one linear half-space},
+          regardless of which VO face is active or how uncertainty enters.
+    \item The robust counterpart remains the \textbf{same convex QP} as in
+          deterministic ORCA.
+    \item Per-agent computation stays \textbf{$O(|\mathcal{N}_i|)$},
+          enabling real-time performance.
+\end{itemize}
+
+
+\end{frame}
+% ------------------------------------------------------
+
+\section{Experiment Results}
+\begin{frame}{More samples can lead to worse performance for (PE)}
+    \begin{columns}[c]
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/8_2_PE_10_animation_frame}{0}{65}\\[2mm]
+            \small 10 samples
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/8_2_PE_50_animation_frame}{0}{69}\\[2mm]
+            \small 50 samples
+        \end{column}
+    \end{columns}
+
+\end{frame}
+
+\begin{frame}{More samples can lead to worse performance for (SAA)}
+    \begin{columns}[c]
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/4_1_SAA_10_animation_frame}{0}{16}\\[2mm]
+            \small 10 samples
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/4_1_SAA_50_animation_frame}{0}{16}\\[2mm]
+            \small 50 samples
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Larger budget leads to more conservative behaviour (RO)}
+    \begin{columns}[c]
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/4_1_RO_0.2_animation_frame}{0}{13}\\[2mm]
+            \small $\Gamma = 0.2$
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/4_1_RO_0.4_animation_frame}{0}{13}\\[2mm]
+            \small $\Gamma = 0.4$
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Larger budget leads to more conservative behaviour (RO)}
+    \begin{columns}[c]
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/8_2_RO_0.2_animation_frame}{0}{46}\\[2mm]
+            \small $\Gamma = 0.2$
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \centering
+            \animategraphics[loop,autoplay,poster=first,width=0.95\textwidth]{5}{../results/experiment/8_2_RO_0.4_animation_frame}{0}{68}\\[2mm]
+            \small $\Gamma = 0.4$
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Results Summary}
+    \centering
+    \input{table.tex}
+\end{frame}
+    
+\begin{frame}{Conclusion}
+    \begin{itemize}
+        \item We proposed a robust ORCA framework that accounts for both position and velocity uncertainty.
+        \item The robust ORCA constraints can be expressed in closed-form deterministic equivalents, preserving the computational efficiency of ORCA.
+        \item Experimental results demonstrate that the robust ORCA effectively reduces collisions under uncertainty while maintaining reasonable path efficiency.
+    \end{itemize}
+\end{frame}
+
+% ------------------------------------------------------
+\frame{\centerline{\Large Thank you!}}
+% ------------------------------------------------------
+
+\end{document}

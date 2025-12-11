@@ -1,0 +1,31 @@
+\begin{table}[]
+    \tiny
+    \caption{Steps needed to achieve the targets, number of collisions and number of relaxations for different methods on various instances. The best results for each instance and measure are highlighted in bold.}
+\begin{tabular}{llrrrrrrr}
+\toprule
+\multirow{2}{*}{Instance} & \multirow{2}{*}{Measures} & \multicolumn{7}{c}{Methods} \\
+\cmidrule{3-9}
+  &   & PE\_1  & PE\_10 & PE\_50 & SAA\_10    & SAA\_50    & RO\_0.2 & RO\_0.4    \\
+\midrule \midrule \addlinespace
+\multirow{3}{*}{4\_1} & Steps & \textbf{13} & 14 & \textbf{13} & 17 & 17 & 14  & 14 \\
+  & Collisions    & \textbf{0} & 3  & \textbf{0} & 3  & 3  & \textbf{0}  & \textbf{0} \\
+  & Relaxations   & \textbf{1} & 4  & \textbf{1} & 15 & 16 & 4   & 3  \\
+  \midrule
+\multirow{3}{*}{4\_2} & Steps & \textbf{42} & 43 & \textbf{42} & \textbf{42} & 44 & \textbf{42}  & \textbf{42} \\
+  & Collisions    & 6  & 14 & 10 & 4  & 2  & \textbf{0}  & \textbf{0} \\
+  & Relaxations   & \textbf{0} & \textbf{0} & \textbf{0} & \textbf{0} & 1  & \textbf{0}  & \textbf{0} \\
+  \midrule
+\multirow{3}{*}{8\_1} & Steps & \textbf{45} & 50 & \textbf{45} & 49 & 48 & 7475    & 50 \\
+  & Collisions    & 21 & 14 & 17 & 5  & 17 & \textbf{0}  & 2  \\
+  & Relaxations   & 32 & 26 & 33 & 29 & 50 & \textbf{10} & 19 \\
+  \midrule
+\multirow{3}{*}{8\_2} & Steps & $\geq$10000  & 66 & 70 & $\geq$10000  & 54 & \textbf{47}  & 69 \\
+  & Collisions    & 2  & 2  & 2  & \textbf{0} & \textbf{0} & \textbf{0}  & \textbf{0} \\
+  & Relaxations   & 4  & 5  & \textbf{3} & 8  & 14 & 12  & 12 \\
+  \midrule
+\multirow{3}{*}{15\_1}    & Steps & \textbf{50} & 51 & 55 & 52 & 52 & 56  & $\geq$10000  \\
+  & Collisions    & 44 & 30 & 53 & 53 & 34 & 24  & \textbf{0} \\
+  & Relaxations   & 78 & 56 & 75 & 114    & 108    & 68  & \textbf{0}     \\
+  \bottomrule
+\end{tabular}
+\end{table}
